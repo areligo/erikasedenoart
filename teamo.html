@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Te Amo · Erika Sedeño</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+    #camera-feed {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      z-index: 0;
+    }
+    #canvas {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 1;
+      pointer-events: none;
+    }
+    #frase {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 2;
+      text-align: center;
+      color: #000;
+      font-size: clamp(2.5rem, 12vw, 6rem);
+      font-weight: 900;
+      font-family: 'Arial Black', 'Arial Bold', sans-serif;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      opacity: 0;
+      transition: opacity 1.4s ease;
+      pointer-events: none;
+    }
+    #btn-camara {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 10;
+      background: transparent;
+      border: 1.5px solid rgba(255,255,255,0.5);
+      color: #fff;
+      padding: 1rem 2rem;
+      font-size: 0.9rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      cursor: pointer;
+      backdrop-filter: blur(4px);
+      border-radius: 2px;
+    }
+    #firma {
+      position: fixed;
+      top: 6%;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2;
+      color: rgba(255,255,255,0.35);
+      font-size: 0.65rem;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      font-family: Georgia, serif;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <video id="camera-feed" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="firma">Erika Sedeño</div>
+  <div id="frase">Te Amo</div>
+  <button id="btn-camara">Activar cámara</button>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const frase = document.getElementById('frase');
+    const btnCamara = document.getElementById('btn-camara');
+    const videoEl = document.getElementById('camera-feed');
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    // Paleta azul de la obra
+    const BLUES = [
+      'rgba(74, 119, 194, ',
+      'rgba(90, 140, 210, ',
+      'rgba(55, 100, 175, ',
+      'rgba(110, 155, 220, ',
+      'rgba(60, 110, 190, ',
+    ];
+
+    // Genera puntos del corazón
+    function heartPoints(cx, cy, size, count) {
+      const points = [];
+      for (let i = 0; i < count; i++) {
+        const t = (i / count) * Math.PI * 2;
+        // Fórmula paramétrica del corazón
+        const x = cx + size * 16 * Math.pow(Math.sin(t), 3);
+        const y = cy - size * (13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t));
+        points.push({ x, y });
+      }
+      return points;
+    }
+
+    // También puntos del interior del corazón
+    function heartFill(cx, cy, size, count) {
+      const points = [];
+      let attempts = 0;
+      while (points.length < count && attempts < count * 20) {
+        attempts++;
+        const px = cx + (Math.random() - 0.5) * size * 34;
+        const py = cy + (Math.random() - 0.5) * size * 30;
+        const dx = (px - cx) / size;
+        const dy = (py - cy) / size;
+        // Test if inside heart
+        const x = dx / 16;
+        const y = -dy / 13;
+        // Rough bounding test
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < size * 14) {
+          // Parametric inside test via multiple angles
+          let inside = false;
+          for (let t = 0; t < Math.PI * 2; t += 0.05) {
+            const hx = 16 * Math.pow(Math.sin(t), 3);
+            const hy = -(13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(t*4));
+            if (Math.abs(dx/size - hx) < 2 && Math.abs(dy/size - hy) < 2) {
+              inside = true;
+              break;
+            }
+          }
+          // Simpler: use ray casting approximation
+          // Just use a tighter radius fill
+          if (dist < size * 10 + Math.random() * size * 4) {
+            points.push({ x: px, y: py });
+          }
+        }
+      }
+      return points;
+    }
+
+    class Dot {
+      constructor(tx, ty, index, total) {
+        this.tx = tx; // target x
+        this.ty = ty; // target y
+        this.x = canvas.width / 2 + (Math.random() - 0.5) * canvas.width;
+        this.y = canvas.height / 2 + (Math.random() - 0.5) * canvas.height;
+        this.radius = 4 + Math.random() * 5;
+        this.color = BLUES[Math.floor(Math.random() * BLUES.length)];
+        this.arrived = false;
+        this.phase = Math.random() * Math.PI * 2; // for pulse offset
+        this.delay = index * 3;
+      }
+
+      update(pulse) {
+        if (this.delay > 0) { this.delay--; return; }
+        // Move toward target
+        if (!this.arrived) {
+          this.x += (this.tx - this.x) * 0.06;
+          this.y += (this.ty - this.y) * 0.06;
+          if (Math.abs(this.x - this.tx) < 1 && Math.abs(this.y - this.ty) < 1) {
+            this.arrived = true;
+          }
+        } else {
+          // Subtle drift + pulse
+          this.x = this.tx + Math.sin(this.phase + pulse * 0.5) * 1.5;
+          this.y = this.ty + Math.cos(this.phase + pulse * 0.5) * 1.5;
+        }
+      }
+
+      draw(pulse) {
+        if (this.delay > 0) return;
+        const scale = this.arrived ? 1 + Math.sin(pulse + this.phase) * 0.18 : 1;
+        const r = this.radius * scale;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = this.color + '0.88)';
+        ctx.fill();
+      }
+    }
+
+    let dots = [];
+    let animating = false;
+    let pulse = 0;
+
+    function initDots() {
+      dots = [];
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const size = Math.min(canvas.width, canvas.height) / 55;
+
+      // Contorno del corazón
+      const outline = heartPoints(cx, cy, size, 120);
+      // Interior disperso
+      const fill = heartFill(cx, cy, size, 80);
+
+      const all = [...outline, ...fill];
+      all.forEach((p, i) => {
+        dots.push(new Dot(p.x, p.y, i, all.length));
+      });
+    }
+
+    function animate() {
+      if (!animating) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      pulse += 0.045;
+
+      for (const d of dots) {
+        d.update(pulse);
+        d.draw(pulse);
+      }
+      requestAnimationFrame(animate);
+    }
+
+    btnCamara.addEventListener('click', async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+          audio: false
+        });
+        videoEl.srcObject = stream;
+        btnCamara.style.display = 'none';
+        initDots();
+        animating = true;
+        animate();
+        setTimeout(() => frase.classList.add('visible'), 2000);
+      } catch (err) {
+        btnCamara.textContent = 'Continuar sin cámara';
+        btnCamara.addEventListener('click', () => {
+          btnCamara.style.display = 'none';
+          initDots();
+          animating = true;
+          animate();
+          setTimeout(() => frase.classList.add('visible'), 2000);
+        }, { once: true });
+      }
+    });
+
+    // Add visible class CSS
+    const style = document.createElement('style');
+    style.textContent = `#frase.visible { opacity: 1; }`;
+    document.head.appendChild(style);
+  </script>
+</body>
+</html>
