@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Abundancia · Erika Sedeño</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #000;
+      overflow: hidden;
+      font-family: 'Georgia', serif;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    #camera-feed {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      z-index: 0;
+    }
+
+    #canvas {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    #frase {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 2;
+      text-align: center;
+      color: #000;
+      font-size: clamp(1.4rem, 6vw, 3rem);
+      font-weight: 900;
+      font-family: 'Arial Black', 'Arial Bold', sans-serif;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0;
+      transition: opacity 1.2s ease;
+      pointer-events: none;
+      width: 90vw;
+      line-height: 1.15;
+      text-shadow: 
+        2px 2px 0 rgba(255,255,255,0.6),
+        -1px -1px 0 rgba(255,255,255,0.4);
+    }
+
+    #frase.visible {
+      opacity: 1;
+    }
+
+    #btn-camara {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 10;
+      background: transparent;
+      border: 1.5px solid rgba(255,255,255,0.5);
+      color: #fff;
+      padding: 1rem 2rem;
+      font-size: 0.9rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      cursor: pointer;
+      backdrop-filter: blur(4px);
+      border-radius: 2px;
+      transition: background 0.3s;
+    }
+
+    #btn-camara:hover {
+      background: rgba(255,255,255,0.1);
+    }
+
+    #firma {
+      position: fixed;
+      top: 6%;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2;
+      color: rgba(255,255,255,0.35);
+      font-size: 0.65rem;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <video id="camera-feed" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="firma">Erika Sedeño</div>
+  <div id="frase">Abundancia para esta familia</div>
+  <button id="btn-camara">Activar cámara</button>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const frase = document.getElementById('frase');
+    const btnCamara = document.getElementById('btn-camara');
+    const videoEl = document.getElementById('camera-feed');
+
+    // Resize canvas
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    // Paleta azul de la obra
+    const BLUES = [
+      'rgba(74, 119, 194, ',
+      'rgba(90, 140, 210, ',
+      'rgba(55, 100, 175, ',
+      'rgba(110, 155, 220, ',
+      'rgba(180, 200, 235, ',
+      'rgba(40, 80, 160, ',
+    ];
+
+    let particles = [];
+    let animating = false;
+
+    class Particle {
+      constructor() {
+        this.reset();
+      }
+
+      reset() {
+        // Origen: a lo largo de la frase
+        const fraseWidth = canvas.width * 0.82;
+        const fraseLeft = (canvas.width - fraseWidth) / 2;
+        this.x = fraseLeft + Math.random() * fraseWidth;
+        this.y = canvas.height / 2 + (Math.random() - 0.5) * 28;
+
+        // Dirección: explotan hacia arriba y abajo desde la frase
+        const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.2;
+        const speed = 2.5 + Math.random() * 6;
+        this.vx = Math.cos(angle) * speed * 0.5;
+        this.vy = Math.sin(angle) * speed;
+
+        // Tamaño
+        this.radius = 4 + Math.random() * 12;
+        this.targetRadius = this.radius;
+
+        // Color
+        this.color = BLUES[Math.floor(Math.random() * BLUES.length)];
+
+        // Vida
+        this.life = 1.0;
+        this.decay = 0.008 + Math.random() * 0.012;
+
+        // Delay escalonado
+        this.delay = Math.random() * 60;
+        this.active = false;
+      }
+
+      update() {
+        if (this.delay > 0) {
+          this.delay--;
+          return;
+        }
+        this.active = true;
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vx *= 0.98;
+        this.vy *= 0.98;
+        this.life -= this.decay;
+
+        if (this.life <= 0) {
+          this.reset();
+        }
+      }
+
+      draw() {
+        if (!this.active) return;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius * this.life, 0, Math.PI * 2);
+        ctx.fillStyle = this.color + (this.life * 0.85) + ')';
+        ctx.fill();
+      }
+    }
+
+    // Crear partículas
+    function initParticles() {
+      particles = [];
+      const count = 180;
+      for (let i = 0; i < count; i++) {
+        particles.push(new Particle());
+      }
+    }
+
+    function animate() {
+      if (!animating) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      for (const p of particles) {
+        p.update();
+        p.draw();
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    // Activar cámara
+    btnCamara.addEventListener('click', async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+          audio: false
+        });
+        videoEl.srcObject = stream;
+        btnCamara.style.display = 'none';
+
+        // Iniciar explosión
+        initParticles();
+        animating = true;
+        animate();
+
+        // Mostrar frase después de 1.5s
+        setTimeout(() => {
+          frase.classList.add('visible');
+        }, 1500);
+
+      } catch (err) {
+        // Fallback sin cámara
+        btnCamara.textContent = 'Continuar sin cámara';
+        btnCamara.addEventListener('click', () => {
+          btnCamara.style.display = 'none';
+          initParticles();
+          animating = true;
+          animate();
+          setTimeout(() => frase.classList.add('visible'), 1500);
+        }, { once: true });
+      }
+    });
+  </script>
+</body>
+</html>
